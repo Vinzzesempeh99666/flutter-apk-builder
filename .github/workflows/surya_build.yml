@@ -1,0 +1,51 @@
+name: Surya Builder Flutter APK
+
+on:
+  push:
+    paths:
+      - 'source/project.zip'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Unzip project source
+        run: |
+          mkdir -p build_workspace
+          unzip -o source/project.zip -d build_workspace
+          if [ ! -f build_workspace/pubspec.yaml ]; then
+            inner=$(find build_workspace -maxdepth 2 -name pubspec.yaml | head -n 1)
+            if [ -n "$inner" ]; then
+              mv "$(dirname "$inner")"/* build_workspace/ 2>/dev/null || true
+            fi
+          fi
+
+      - name: Flutter pub get
+        working-directory: build_workspace
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: build_workspace
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: surya-builder-apk
+          path: build_workspace/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
