@@ -1,10 +1,11 @@
 name: Surya Builder Flutter APK
 
 on:
-  push:
-    paths:
-      - 'source/project.zip'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag berisi ZIP project'
+        required: true
 
 jobs:
   build:
@@ -24,10 +25,23 @@ jobs:
         with:
           flutter-version: '3.24.5'
 
-      - name: Unzip project source
+      - name: Download & extract project ZIP dari Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.release_tag }}
         run: |
           mkdir -p build_workspace
-          unzip -o source/project.zip -d build_workspace
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/tags/$TAG" \
+            | jq -r '.assets[0].url')
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "::error::Tidak menemukan asset ZIP di release $TAG"
+            exit 1
+          fi
+          curl -L -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+            "$ASSET_URL" -o project.zip
+          unzip -o project.zip -d build_workspace
           if [ ! -f build_workspace/pubspec.yaml ]; then
             inner=$(find build_workspace -maxdepth 2 -name pubspec.yaml | head -n 1)
             if [ -n "$inner" ]; then
