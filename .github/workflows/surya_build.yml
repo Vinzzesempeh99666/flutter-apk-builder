@@ -22,7 +22,6 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.0'
           channel: 'stable'
 
       - name: Unzip project source
@@ -36,9 +35,56 @@ jobs:
             fi
           fi
 
-      - name: Flutter pub get
+      - name: Validasi pubspec.yaml
         working-directory: build_workspace
-        run: flutter pub get
+        run: |
+          if [ ! -f pubspec.yaml ]; then
+            echo "##[error] pubspec.yaml tidak ditemukan. Pastikan ZIP berisi project Flutter yang valid (pubspec.yaml harus ada di root project)."
+            exit 1
+          fi
+          echo "▶ pubspec.yaml ditemukan. Isi blok environment:"
+          grep -A2 "^environment:" pubspec.yaml || echo "  (tidak ada blok 'environment:' eksplisit di pubspec.yaml)"
+          echo "▶ Dart/Flutter SDK yang dipakai runner saat ini:"
+          flutter --version
+
+      - name: Flutter pub get (dengan fallback)
+        working-directory: build_workspace
+        run: |
+          set +e
+          echo "▶ Percobaan 1: flutter pub get"
+          OUTPUT=$(flutter pub get 2>&1)
+          STATUS=$?
+          echo "$OUTPUT"
+
+          if [ $STATUS -ne 0 ] && echo "$OUTPUT" | grep -qi "version solving failed"; then
+            echo "―――――――――――――――――――――――――――"
+            echo "⚠ Percobaan 1 gagal karena version conflict, coba Percobaan 2: pub get --no-precompile"
+            OUTPUT2=$(flutter pub get --no-precompile 2>&1)
+            STATUS=$?
+            echo "$OUTPUT2"
+            [ $STATUS -ne 0 ] && OUTPUT="$OUTPUT2"
+          fi
+
+          if [ $STATUS -ne 0 ]; then
+            echo "―――――――――――――――――――――――――――"
+            echo "##[error] Gagal resolve dependency Flutter project (pubspec.yaml)."
+            echo ""
+            CONFLICT_LINES=$(echo "$OUTPUT" | grep -iE "^Because|requires (sdk|version)|version solving failed")
+            if [ -n "$CONFLICT_LINES" ]; then
+              echo "📦 Detail konflik dependency:"
+              echo "$CONFLICT_LINES"
+              echo ""
+            fi
+            echo "💡 Kemungkinan penyebab:"
+            echo "  - Ada package di pubspec.yaml yang minta Dart SDK lebih baru dari yang tersedia di runner"
+            echo "  - Dua package saling bentrok soal versi dependency yang sama"
+            echo "  - pubspec.lock usang / tidak sinkron dengan pubspec.yaml"
+            echo ""
+            echo "🔧 Solusi: sesuaikan versi package yang disebut di atas pada pubspec.yaml project ini, lalu build ulang."
+            exit 1
+          fi
+
+          echo "✓ flutter pub get berhasil"
 
       - name: Build release APK
         working-directory: build_workspace
